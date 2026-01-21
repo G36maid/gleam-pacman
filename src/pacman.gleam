@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option
 import gleam/time/duration
 import pacman/constants as c
+import pacman/game_state as gs
 import pacman/maze
 import tiramisu
 import tiramisu/background
@@ -19,7 +20,14 @@ import vec/vec2
 import vec/vec3
 
 pub type Model {
-  Model(time: Float)
+  Model(
+    player: gs.Player,
+    ghosts: List(gs.Ghost),
+    phase: gs.GamePhase,
+    maze_tiles: List(List(gs.Tile)),
+    // Dynamic maze state
+    time: Float,
+  )
 }
 
 pub type Msg {
@@ -42,8 +50,24 @@ fn init(ctx: tiramisu.Context) -> #(Model, Effect(Msg), option.Option(_)) {
       BackgroundSet,
       BackgroundSet,
     )
+
+  // Convert static maze to dynamic tile state
+  let initial_maze_tiles = maze_to_tiles(maze.create_classic_maze())
+  let dots_count = count_dots(initial_maze_tiles)
+
   #(
-    Model(time: 0.0),
+    Model(
+      player: gs.initial_player(),
+      ghosts: gs.initial_ghosts(),
+      phase: gs.Playing(
+        score: 0,
+        lives: 3,
+        level: 1,
+        dots_remaining: dots_count,
+      ),
+      maze_tiles: initial_maze_tiles,
+      time: 0.0,
+    ),
     effect.batch([bg_effect, effect.dispatch(Tick)]),
     option.None,
   )
@@ -58,13 +82,13 @@ fn update(
     Tick -> {
       let delta_seconds = duration.to_seconds(ctx.delta_time)
       let new_time = model.time +. delta_seconds
-      #(Model(time: new_time), effect.dispatch(Tick), option.None)
+      #(Model(..model, time: new_time), effect.dispatch(Tick), option.None)
     }
     BackgroundSet -> #(model, effect.none(), option.None)
   }
 }
 
-fn view(_model: Model, ctx: tiramisu.Context) -> scene.Node {
+fn view(model: Model, ctx: tiramisu.Context) -> scene.Node {
   // Use canvas size for camera (simpler approach)
   let cam =
     camera.camera_2d(size: vec2.Vec2(
@@ -78,9 +102,11 @@ fn view(_model: Model, ctx: tiramisu.Context) -> scene.Node {
   // Create ambient light
   let assert Ok(ambient_light) = light.ambient(color: 0xFFFFFF, intensity: 1.0)
 
-  // Render maze (positioned at origin for now)
-  let maze_data = maze.create_classic_maze()
-  let maze_nodes = render_maze(maze_data)
+  // Render maze
+  let maze_nodes = render_maze(model.maze_tiles)
+
+  // Render player
+  let player_node = render_player(model.player)
 
   scene.empty(
     id: "Scene",
@@ -100,6 +126,7 @@ fn view(_model: Model, ctx: tiramisu.Context) -> scene.Node {
           light: ambient_light,
           transform: transform.identity,
         ),
+        player_node,
       ],
       maze_nodes,
     ]),
@@ -107,7 +134,7 @@ fn view(_model: Model, ctx: tiramisu.Context) -> scene.Node {
 }
 
 // Render the entire maze
-fn render_maze(maze: List(List(maze.Tile))) -> List(scene.Node) {
+fn render_maze(maze: List(List(gs.Tile))) -> List(scene.Node) {
   maze
   |> list.index_map(fn(row, y) {
     row
@@ -123,7 +150,7 @@ fn render_maze(maze: List(List(maze.Tile))) -> List(scene.Node) {
 }
 
 // Render individual tile
-fn render_tile(tile: maze.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
+fn render_tile(tile: gs.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
   // Center maze at origin by offsetting
   let offset_x = int.to_float(c.maze_width) *. c.tile_size /. 2.0
   let offset_y = int.to_float(c.maze_height) *. c.tile_size /. 2.0
@@ -132,7 +159,7 @@ fn render_tile(tile: maze.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
   let world_y = int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0 -. offset_y
 
   case tile {
-    maze.Wall -> {
+    gs.Wall -> {
       let assert Ok(wall_geo) =
         geometry.box(size: vec3.Vec3(c.tile_size, c.tile_size, c.tile_size))
       let assert Ok(wall_mat) =
@@ -149,7 +176,7 @@ fn render_tile(tile: maze.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
       ))
     }
 
-    maze.Dot -> {
+    gs.Dot -> {
       let assert Ok(dot_geo) =
         geometry.sphere(radius: c.tile_size /. 8.0, segments: vec2.Vec2(8, 6))
       let assert Ok(dot_mat) =
@@ -166,7 +193,7 @@ fn render_tile(tile: maze.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
       ))
     }
 
-    maze.PowerPellet -> {
+    gs.PowerPellet -> {
       let assert Ok(pellet_geo) =
         geometry.sphere(radius: c.tile_size /. 4.0, segments: vec2.Vec2(8, 6))
       let assert Ok(pellet_mat) =
@@ -183,6 +210,69 @@ fn render_tile(tile: maze.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
       ))
     }
 
-    maze.Empty -> option.None
+    gs.Empty -> option.None
   }
+}
+
+// Render player at grid position
+fn render_player(player: gs.Player) -> scene.Node {
+  let world_pos = grid_to_world(player.grid_pos)
+
+  let assert Ok(player_geo) =
+    geometry.sphere(radius: c.tile_size /. 2.5, segments: vec2.Vec2(16, 12))
+  let assert Ok(player_mat) =
+    material.new()
+    |> material.with_color(c.color_pacman)
+    |> material.build()
+
+  scene.mesh(
+    id: "player",
+    geometry: player_geo,
+    material: player_mat,
+    transform: transform.at(position: vec3.Vec3(world_pos.x, world_pos.y, 0.0)),
+    physics: option.None,
+  )
+}
+
+// Convert grid position to world coordinates
+fn grid_to_world(grid_pos: vec2.Vec2(Int)) -> vec2.Vec2(Float) {
+  let offset_x = int.to_float(c.maze_width) *. c.tile_size /. 2.0
+  let offset_y = int.to_float(c.maze_height) *. c.tile_size /. 2.0
+
+  let world_x =
+    int.to_float(grid_pos.x) *. c.tile_size +. c.tile_size /. 2.0 -. offset_x
+  let world_y =
+    int.to_float(grid_pos.y) *. c.tile_size +. c.tile_size /. 2.0 -. offset_y
+
+  vec2.Vec2(world_x, world_y)
+}
+
+// Convert static maze layout to dynamic tile state
+fn maze_to_tiles(maze: List(List(maze.Tile))) -> List(List(gs.Tile)) {
+  maze
+  |> list.map(fn(row) {
+    row
+    |> list.map(fn(tile) {
+      case tile {
+        maze.Wall -> gs.Wall
+        maze.Empty -> gs.Empty
+        maze.Dot -> gs.Dot
+        maze.PowerPellet -> gs.PowerPellet
+      }
+    })
+  })
+}
+
+// Count total dots in maze
+fn count_dots(maze: List(List(gs.Tile))) -> Int {
+  maze
+  |> list.fold(0, fn(acc, row) {
+    row
+    |> list.fold(acc, fn(row_acc, tile) {
+      case tile {
+        gs.Dot | gs.PowerPellet -> row_acc + 1
+        _ -> row_acc
+      }
+    })
+  })
 }
