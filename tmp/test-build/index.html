@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1" name="viewport">
+
+    <title>
+      pacman
+    </title>
+
+    <style>body { margin: 0; padding: 0; overflow: hidden; background: black; font-family: 'Courier New', monospace; color: white; }</style>
+    <style>#app { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }</style>
+    <style>#app canvas { display: block; width: 100%; height: 100%; }</style>
+    <style>#ui-overlay { position: fixed; top: 0; left: 0; width: 100%; padding: 20px; background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%); z-index: 1000; display: flex; justify-content: space-between; align-items: center; }</style>
+    <style>#score { font-size: 24px; font-weight: bold; color: #FFB897; }</style>
+    <style>#lives { font-size: 20px; display: flex; align-items: center; gap: 10px; }</style>
+    <style>#level { font-size: 20px; color: #00FFFF; }</style>
+    <style>.life-icon { width: 20px; height: 20px; background-color: #FFFF00; border-radius: 50%; }</style>
+    <style>#game-over { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 0, 0, 0.9); padding: 40px 60px; border: 4px solid #FF0000; border-radius: 10px; text-align: center; display: none; z-index: 2000; }</style>
+    <style>#game-over h1 { font-size: 48px; margin: 0 0 20px 0; color: #FF0000; }</style>
+    <style>#game-over p { font-size: 24px; margin: 10px 0; }</style>
+
+
+    <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/", "@dimforge/rapier3d-compat": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.11.2/+esm" } }</script>
+    <script type="module">window.updateUI = function(score, lives, level, phase) { document.getElementById('score').textContent = `SCORE: ${score}`; document.getElementById('level').textContent = `LEVEL: ${level}`; const livesContainer = document.getElementById('lives-icons'); livesContainer.innerHTML = ''; for (let i = 0; i < lives; i++) { const icon = document.createElement('div'); icon.className = 'life-icon'; livesContainer.appendChild(icon); } const gameOverDiv = document.getElementById('game-over'); if (phase === 'GameOver') { gameOverDiv.style.display = 'block'; document.getElementById('final-score').textContent = `SCORE: ${score}`; } else { gameOverDiv.style.display = 'none'; } }; setTimeout(() => { const canvas = document.querySelector('#app canvas'); if (canvas) { console.log('✓ Canvas created:', canvas.width, 'x', canvas.height); } else { console.error('✗ Canvas NOT created'); } }, 1000);</script>
+
+    <script src="/pacman.js" type="module"></script>
+  </head>
+  <body><div id="ui-overlay"><div id="score">SCORE: 0</div><div id="level">LEVEL: 1</div><div id="lives">LIVES:<div id="lives-icons"></div></div></div><div id="game-over"><h1>GAME OVER</h1><p id="final-score">SCORE: 0</p><p style="color: #888; font-size: 18px;">Refresh to play again</p></div><div id="app"></div></body>
+</html>

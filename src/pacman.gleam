@@ -6,6 +6,7 @@ import gleam/time/duration
 import pacman/constants as c
 import pacman/game_state as gs
 import pacman/maze
+import pacman/rendering/assets
 import pacman/systems/collision as col
 import pacman/systems/ghost_ai as gai
 import pacman/systems/ghost_mode as gm
@@ -14,10 +15,8 @@ import pacman/ui
 import tiramisu
 import tiramisu/camera
 import tiramisu/effect
-import tiramisu/geometry
 import tiramisu/input
 import tiramisu/light
-import tiramisu/material
 import tiramisu/scene
 import tiramisu/transform
 import vec/vec2
@@ -25,7 +24,11 @@ import vec/vec3
 
 // Game Model
 pub type Model {
-  Model(game_state: gs.GameState, input_direction: Option(gs.Direction))
+  Model(
+    game_state: gs.GameState,
+    input_direction: Option(gs.Direction),
+    assets: assets.RenderingAssets,
+  )
 }
 
 // Game Messages
@@ -78,8 +81,15 @@ fn init(_ctx: tiramisu.Context) {
       ghosts_eaten_combo: 0,
     )
 
+  // Create shared rendering assets once
+  let rendering_assets = assets.create_assets()
+
   #(
-    Model(game_state: initial_state, input_direction: None),
+    Model(
+      game_state: initial_state,
+      input_direction: None,
+      assets: rendering_assets,
+    ),
     effect.dispatch(Tick),
     option.None,
   )
@@ -211,7 +221,11 @@ fn update(model: Model, msg: Msg, ctx: tiramisu.Context) {
       )
 
       #(
-        Model(game_state: final_game_state, input_direction: new_input_dir),
+        Model(
+          game_state: final_game_state,
+          input_direction: new_input_dir,
+          assets: model.assets,
+        ),
         effect.dispatch(Tick),
         option.None,
       )
@@ -260,9 +274,9 @@ fn view(model: Model, _ctx: tiramisu.Context) {
   let assert Ok(ambient) = light.ambient(intensity: 1.0, color: 0xFFFFFF)
 
   // Build scene nodes
-  let maze_nodes = render_maze(model.game_state.maze)
-  let player_node = render_player(model.game_state.player)
-  let ghost_nodes = render_ghosts(model.game_state.ghosts)
+  let maze_nodes = render_maze(model.game_state.maze, model.assets)
+  let player_node = render_player(model.game_state.player, model.assets)
+  let ghost_nodes = render_ghosts(model.game_state.ghosts, model.assets)
 
   let scene_children =
     list.flatten([
@@ -294,108 +308,135 @@ fn view(model: Model, _ctx: tiramisu.Context) {
 }
 
 // Render the maze tiles
-fn render_maze(maze: List(List(gs.Tile))) -> List(scene.Node) {
+fn render_maze(
+  maze: List(List(gs.Tile)),
+  assets: assets.RenderingAssets,
+) -> List(scene.Node) {
+  let walls = render_walls(maze, assets)
+  let dots = render_dots_instanced(maze, assets)
+  let pellets = render_pellets(maze, assets)
+
+  list.flatten([[dots], walls, pellets])
+}
+
+// Render walls individually (different positions)
+fn render_walls(
+  maze: List(List(gs.Tile)),
+  assets: assets.RenderingAssets,
+) -> List(scene.Node) {
   maze
   |> list.index_map(fn(row, y) {
     row
-    |> list.index_map(fn(tile, x) { render_tile(tile, x, y) })
+    |> list.index_map(fn(tile, x) {
+      case tile {
+        gs.Wall ->
+          Some(scene.mesh(
+            id: "wall-" <> int.to_string(x) <> "-" <> int.to_string(y),
+            geometry: assets.wall_geometry,
+            material: assets.wall_material,
+            transform: transform.at(position: vec3.Vec3(
+              int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0,
+              int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0,
+              0.0,
+            )),
+            physics: option.None,
+          ))
+        _ -> None
+      }
+    })
   })
   |> list.flatten
-  |> list.filter(fn(node_opt) {
-    case node_opt {
-      Some(_) -> True
-      None -> False
+  |> list.filter_map(fn(opt) {
+    case opt {
+      Some(node) -> Ok(node)
+      None -> Error(Nil)
     }
-  })
-  |> list.map(fn(node_opt) {
-    let assert Some(node) = node_opt
-    node
   })
 }
 
-// Render individual tile
-fn render_tile(tile: gs.Tile, x: Int, y: Int) -> Option(scene.Node) {
-  case tile {
-    gs.Wall -> {
-      let assert Ok(wall_geo) =
-        geometry.box(size: vec3.Vec3(c.tile_size, c.tile_size, c.tile_size))
-      let assert Ok(wall_mat) =
-        material.new()
-        |> material.with_color(c.color_wall)
-        |> material.build()
+// Render all dots using instanced meshes (1 draw call!)
+fn render_dots_instanced(
+  maze: List(List(gs.Tile)),
+  assets: assets.RenderingAssets,
+) -> scene.Node {
+  let dot_transforms =
+    maze
+    |> list.index_map(fn(row, y) {
+      row
+      |> list.index_map(fn(tile, x) {
+        case tile {
+          gs.Dot ->
+            Some(
+              transform.at(position: vec3.Vec3(
+                int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0,
+                int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0,
+                0.0,
+              )),
+            )
+          _ -> None
+        }
+      })
+    })
+    |> list.flatten
+    |> list.filter_map(fn(opt) {
+      case opt {
+        Some(t) -> Ok(t)
+        None -> Error(Nil)
+      }
+    })
 
-      Some(scene.mesh(
-        id: "wall-" <> int.to_string(x) <> "-" <> int.to_string(y),
-        geometry: wall_geo,
-        material: wall_mat,
-        transform: transform.at(position: vec3.Vec3(
-          int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0,
-          int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0,
-          0.0,
-        )),
-        physics: option.None,
-      ))
+  scene.instanced_mesh(
+    id: "dots",
+    geometry: assets.dot_geometry,
+    material: assets.dot_material,
+    instances: dot_transforms,
+  )
+}
+
+// Render power pellets individually
+fn render_pellets(
+  maze: List(List(gs.Tile)),
+  assets: assets.RenderingAssets,
+) -> List(scene.Node) {
+  maze
+  |> list.index_map(fn(row, y) {
+    row
+    |> list.index_map(fn(tile, x) {
+      case tile {
+        gs.PowerPellet ->
+          Some(scene.mesh(
+            id: "pellet-" <> int.to_string(x) <> "-" <> int.to_string(y),
+            geometry: assets.pellet_geometry,
+            material: assets.pellet_material,
+            transform: transform.at(position: vec3.Vec3(
+              int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0,
+              int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0,
+              0.0,
+            )),
+            physics: option.None,
+          ))
+        _ -> None
+      }
+    })
+  })
+  |> list.flatten
+  |> list.filter_map(fn(opt) {
+    case opt {
+      Some(node) -> Ok(node)
+      None -> Error(Nil)
     }
-
-    gs.Dot -> {
-      let assert Ok(dot_geo) =
-        geometry.sphere(radius: c.tile_size /. 8.0, segments: vec2.Vec2(8, 6))
-      let assert Ok(dot_mat) =
-        material.new()
-        |> material.with_color(c.color_dot)
-        |> material.build()
-
-      Some(scene.mesh(
-        id: "dot-" <> int.to_string(x) <> "-" <> int.to_string(y),
-        geometry: dot_geo,
-        material: dot_mat,
-        transform: transform.at(position: vec3.Vec3(
-          int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0,
-          int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0,
-          0.0,
-        )),
-        physics: option.None,
-      ))
-    }
-
-    gs.PowerPellet -> {
-      let assert Ok(pellet_geo) =
-        geometry.sphere(radius: c.tile_size /. 4.0, segments: vec2.Vec2(12, 8))
-      let assert Ok(pellet_mat) =
-        material.new()
-        |> material.with_color(c.color_power_pellet)
-        |> material.build()
-
-      Some(scene.mesh(
-        id: "pellet-" <> int.to_string(x) <> "-" <> int.to_string(y),
-        geometry: pellet_geo,
-        material: pellet_mat,
-        transform: transform.at(position: vec3.Vec3(
-          int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0,
-          int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0,
-          0.0,
-        )),
-        physics: option.None,
-      ))
-    }
-
-    _ -> None
-  }
+  })
 }
 
 // Render Pacman
-fn render_player(player: gs.Player) -> scene.Node {
-  let assert Ok(pacman_geo) =
-    geometry.sphere(radius: c.tile_size /. 2.0, segments: vec2.Vec2(16, 12))
-  let assert Ok(pacman_mat) =
-    material.new()
-    |> material.with_color(c.color_pacman)
-    |> material.build()
-
+fn render_player(
+  player: gs.Player,
+  assets: assets.RenderingAssets,
+) -> scene.Node {
   scene.mesh(
     id: "pacman",
-    geometry: pacman_geo,
-    material: pacman_mat,
+    geometry: assets.player_geometry,
+    material: assets.player_material,
     transform: transform.at(position: vec3.Vec3(
       player.world_pos.x,
       player.world_pos.y,
@@ -406,7 +447,10 @@ fn render_player(player: gs.Player) -> scene.Node {
 }
 
 // Render all ghosts
-fn render_ghosts(ghosts: List(gs.Ghost)) -> List(scene.Node) {
+fn render_ghosts(
+  ghosts: List(gs.Ghost),
+  assets: assets.RenderingAssets,
+) -> List(scene.Node) {
   ghosts
   |> list.index_map(fn(ghost, idx) {
     let personality = case idx {
@@ -416,7 +460,7 @@ fn render_ghosts(ghosts: List(gs.Ghost)) -> List(scene.Node) {
       3 -> gai.Clyde
       _ -> gai.Blinky
     }
-    render_ghost(ghost, personality)
+    render_ghost(ghost, personality, assets)
   })
 }
 
@@ -424,26 +468,24 @@ fn render_ghosts(ghosts: List(gs.Ghost)) -> List(scene.Node) {
 fn render_ghost(
   ghost: gs.Ghost,
   personality: gai.GhostPersonality,
+  assets: assets.RenderingAssets,
 ) -> scene.Node {
-  let assert Ok(ghost_geo) =
-    geometry.sphere(radius: c.tile_size /. 2.0, segments: vec2.Vec2(16, 12))
-
-  let color = case ghost.mode {
-    gs.Frightened -> c.color_frightened
-    gs.Dead -> 0x888888
-    // Gray for dead ghosts
-    _ -> gai.ghost_color(personality)
+  let material = case ghost.mode {
+    gs.Frightened -> assets.ghost_frightened
+    gs.Dead -> assets.ghost_dead
+    _ ->
+      case personality {
+        gai.Blinky -> assets.ghost_normal_blinky
+        gai.Pinky -> assets.ghost_normal_pinky
+        gai.Inky -> assets.ghost_normal_inky
+        gai.Clyde -> assets.ghost_normal_clyde
+      }
   }
-
-  let assert Ok(ghost_mat) =
-    material.new()
-    |> material.with_color(color)
-    |> material.build()
 
   scene.mesh(
     id: ghost.id,
-    geometry: ghost_geo,
-    material: ghost_mat,
+    geometry: assets.ghost_geometry,
+    material: material,
     transform: transform.at(position: vec3.Vec3(
       ghost.world_pos.x,
       ghost.world_pos.y,

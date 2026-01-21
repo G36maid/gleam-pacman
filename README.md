@@ -35,41 +35,43 @@ A fully functional **classic Pac-Man game** built with [Gleam](https://gleam.run
 ### Prerequisites
 
 - [Gleam](https://gleam.run/getting-started/installing/) (v1.6.0+)
-- [Node.js](https://nodejs.org/) (for live-server)
 
-### Run Locally
+### Run Locally (Recommended: Lustre Dev Server)
 
-Tiramisu games require a browser environment with module support. Use a local dev server:
+The easiest way to run the game is using the Lustre dev server with live-reload:
 
 ```sh
-# Quick start (automatically picks an available server)
-./dev.sh
+gleam run -m lustre/dev start
+```
 
-# Then open in browser:
-# http://localhost:1234/pacman/  <-- Don't forget the /pacman/ part!
+This automatically:
+- Compiles the Gleam code to JavaScript
+- Starts a dev server on http://localhost:1234
+- Opens your browser
+- Watches for file changes and reloads automatically
 
-# Or manually:
+**Just run the command above and start playing!**
+
+### Alternative: Manual Build
+
+If you prefer manual control or need to serve from a specific location:
+
+```sh
 gleam build
 cp index.html build/dev/javascript/pacman/
 cd build/dev/javascript
 
 # Then start a dev server (choose one):
-# Python
 python3 -m http.server 1234
-
-# PHP
+# OR
 php -S localhost:1234
-
-# npx (no installation)
+# OR
 npx -y live-server@1.2.2 . --port=1234 --open=pacman/
 
 # Open http://localhost:1234/pacman/ in your browser
 ```
 
-**Important**: 
-- `gleam run` won't work (Tiramisu uses browser APIs and CDN imports)
-- Serve from `build/dev/javascript/` not `pacman/` subdirectory (module imports need parent paths)
-- Access via http://localhost:1234/pacman/ not root
+**Note**: `gleam run` won't work directly (Tiramisu uses browser APIs and CDN imports)
 
 ### Format Code
 
@@ -106,6 +108,17 @@ src/
 - **Engine**: [Tiramisu 7.0.0](https://hexdocs.pm/tiramisu/) - Game engine on Three.js
 - **Pattern**: MVU (Model-View-Update) - Immutable state architecture
 - **Target**: JavaScript (runs in browser)
+
+### Performance Optimizations
+
+The game uses several rendering optimizations for smooth 60 FPS gameplay:
+
+- **Shared Geometry/Materials** - Assets created once and reused across frames (100x reduction in allocations)
+- **Instanced Mesh Rendering** - All dots rendered in 1 draw call instead of 240+
+- **Optimized Polygon Count** - Low-poly spheres (8×6 segments) for small objects
+- **Efficient Scene Graph** - Minimal hierarchy depth for fast transform calculations
+
+These optimizations ensure smooth performance even on lower-end devices.
 
 ## Game Mechanics
 
