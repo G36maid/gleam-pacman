@@ -41,3 +41,6 @@ To run the tests:
 ```sh
 gleam test
 ```
+
+## commit
+use convensional commit format for each step

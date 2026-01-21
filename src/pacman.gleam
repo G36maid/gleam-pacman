@@ -6,6 +6,7 @@ import gleam/time/duration
 import pacman/constants as c
 import pacman/game_state as gs
 import pacman/maze
+import pacman/systems/ghost_ai as gai
 import pacman/systems/movement as mv
 import tiramisu
 import tiramisu/camera
@@ -49,11 +50,19 @@ fn init(_ctx: tiramisu.Context) {
       next_direction: None,
     )
 
+  // Spawn all four ghosts
+  let ghosts = [
+    gai.spawn_ghost(gai.Blinky, maze_data),
+    gai.spawn_ghost(gai.Pinky, maze_data),
+    gai.spawn_ghost(gai.Inky, maze_data),
+    gai.spawn_ghost(gai.Clyde, maze_data),
+  ]
+
   let initial_state =
     gs.GameState(
       phase: gs.Playing,
       player: player,
-      ghosts: [],
+      ghosts: ghosts,
       maze: maze_data,
       score: 0,
       lives: c.starting_lives,
@@ -117,7 +126,66 @@ fn update(model: Model, msg: Msg, ctx: tiramisu.Context) {
           c.maze_height,
         )
 
-      let new_game_state = gs.GameState(..model.game_state, player: new_player)
+      // Update ghost AI and movement
+      let blinky_pos = case list.first(model.game_state.ghosts) {
+        Ok(blinky) -> Some(blinky.grid_pos)
+        Error(_) -> None
+      }
+
+      let new_ghosts =
+        model.game_state.ghosts
+        |> list.index_map(fn(ghost, idx) {
+          let personality = case idx {
+            0 -> gai.Blinky
+            1 -> gai.Pinky
+            2 -> gai.Inky
+            3 -> gai.Clyde
+            _ -> gai.Blinky
+          }
+
+          // Update AI
+          let ghost_with_ai =
+            gai.update_ghost_ai(
+              ghost,
+              personality,
+              new_player,
+              blinky_pos,
+              model.game_state.maze,
+            )
+
+          // Update movement
+          let speed = case ghost.mode {
+            gs.Frightened -> c.ghost_speed_frightened
+            _ -> c.ghost_speed_normal
+          }
+
+          mv.update_player_movement(
+            gs.Player(
+              grid_pos: ghost_with_ai.grid_pos,
+              world_pos: ghost_with_ai.world_pos,
+              direction: ghost_with_ai.direction,
+              next_direction: None,
+            ),
+            Some(ghost_with_ai.direction),
+            model.game_state.maze,
+            speed,
+            c.tile_size,
+            c.turn_threshold,
+            delta,
+            c.maze_width,
+            c.maze_height,
+          )
+          |> fn(updated_player) {
+            gs.Ghost(
+              ..ghost_with_ai,
+              grid_pos: updated_player.grid_pos,
+              world_pos: updated_player.world_pos,
+            )
+          }
+        })
+
+      let new_game_state =
+        gs.GameState(..model.game_state, player: new_player, ghosts: new_ghosts)
 
       #(
         Model(game_state: new_game_state, input_direction: new_input_dir),
@@ -152,6 +220,7 @@ fn view(model: Model, _ctx: tiramisu.Context) {
   // Build scene nodes
   let maze_nodes = render_maze(model.game_state.maze)
   let player_node = render_player(model.game_state.player)
+  let ghost_nodes = render_ghosts(model.game_state.ghosts)
 
   let scene_children =
     list.flatten([
@@ -172,6 +241,7 @@ fn view(model: Model, _ctx: tiramisu.Context) {
       ],
       maze_nodes,
       [player_node],
+      ghost_nodes,
     ])
 
   scene.empty(
@@ -287,6 +357,54 @@ fn render_player(player: gs.Player) -> scene.Node {
     transform: transform.at(position: vec3.Vec3(
       player.world_pos.x,
       player.world_pos.y,
+      c.tile_size /. 2.0,
+    )),
+    physics: option.None,
+  )
+}
+
+// Render all ghosts
+fn render_ghosts(ghosts: List(gs.Ghost)) -> List(scene.Node) {
+  ghosts
+  |> list.index_map(fn(ghost, idx) {
+    let personality = case idx {
+      0 -> gai.Blinky
+      1 -> gai.Pinky
+      2 -> gai.Inky
+      3 -> gai.Clyde
+      _ -> gai.Blinky
+    }
+    render_ghost(ghost, personality)
+  })
+}
+
+// Render individual ghost
+fn render_ghost(
+  ghost: gs.Ghost,
+  personality: gai.GhostPersonality,
+) -> scene.Node {
+  let assert Ok(ghost_geo) =
+    geometry.sphere(radius: c.tile_size /. 2.0, segments: vec2.Vec2(16, 12))
+
+  let color = case ghost.mode {
+    gs.Frightened -> c.color_frightened
+    gs.Dead -> 0x888888
+    // Gray for dead ghosts
+    _ -> gai.ghost_color(personality)
+  }
+
+  let assert Ok(ghost_mat) =
+    material.new()
+    |> material.with_color(color)
+    |> material.build()
+
+  scene.mesh(
+    id: ghost.id,
+    geometry: ghost_geo,
+    material: ghost_mat,
+    transform: transform.at(position: vec3.Vec3(
+      ghost.world_pos.x,
+      ghost.world_pos.y,
       c.tile_size /. 2.0,
     )),
     physics: option.None,
