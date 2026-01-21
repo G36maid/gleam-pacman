@@ -1,4 +1,4 @@
-/// Game constants for Pac-Man
+// Game constants for Pac-Man
 // Maze dimensions (classic Pac-Man)
 
 pub const maze_width = 28
