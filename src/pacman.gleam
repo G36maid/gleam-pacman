@@ -10,6 +10,7 @@ import pacman/systems/collision as col
 import pacman/systems/ghost_ai as gai
 import pacman/systems/ghost_mode as gm
 import pacman/systems/movement as mv
+import pacman/ui
 import tiramisu
 import tiramisu/camera
 import tiramisu/effect
@@ -200,6 +201,14 @@ fn update(model: Model, msg: Msg, ctx: tiramisu.Context) {
         True -> col.next_level(new_game_state)
         False -> new_game_state
       }
+
+      // Update UI
+      ui.update_ui(
+        final_game_state.score,
+        final_game_state.lives,
+        final_game_state.level,
+        ui.phase_to_string(final_game_state.phase),
+      )
 
       #(
         Model(game_state: final_game_state, input_direction: new_input_dir),
