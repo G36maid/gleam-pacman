@@ -4,6 +4,7 @@ import gleam/int
 import gleam/list
 import gleam/option
 import gleam/time/duration
+import pacman/collision
 import pacman/constants as c
 import pacman/game_state as gs
 import pacman/maze
@@ -107,8 +108,63 @@ fn update(
       let new_player =
         movement.move_player(player_with_input, model.maze_tiles, delta_seconds)
 
+      // Check collision with dots/pellets
+      let collision_result =
+        collision.check_dot_collision(new_player.grid_pos, model.maze_tiles)
+
+      // Update player power mode if ate power pellet
+      let player_with_power = case collision_result.ate_power_pellet {
+        True ->
+          gs.Player(
+            ..new_player,
+            power_mode: True,
+            power_timer: 8.0,
+            // 8 seconds of power mode
+          )
+        False ->
+          // Decrease power timer if in power mode
+          case new_player.power_mode {
+            True -> {
+              let new_timer = new_player.power_timer -. delta_seconds
+              case new_timer <=. 0.0 {
+                True ->
+                  gs.Player(..new_player, power_mode: False, power_timer: 0.0)
+                False -> gs.Player(..new_player, power_timer: new_timer)
+              }
+            }
+            False -> new_player
+          }
+      }
+
+      // Update phase with new score and dots remaining
+      let new_phase = case model.phase {
+        gs.Playing(score, lives, level, _) -> {
+          let score_increment = case collision_result.ate_dot {
+            True -> 10
+            False ->
+              case collision_result.ate_power_pellet {
+                True -> 50
+                False -> 0
+              }
+          }
+          gs.Playing(
+            score: score + score_increment,
+            lives: lives,
+            level: level,
+            dots_remaining: collision_result.dots_remaining,
+          )
+        }
+        _ -> model.phase
+      }
+
       #(
-        Model(..model, player: new_player, time: new_time),
+        Model(
+          ..model,
+          player: player_with_power,
+          maze_tiles: collision_result.updated_maze,
+          phase: new_phase,
+          time: new_time,
+        ),
         effect.dispatch(Tick),
         option.None,
       )
