@@ -44,25 +44,30 @@ Tiramisu games require a browser environment with module support. Use a local de
 ```sh
 # Quick start (automatically picks an available server)
 ./dev.sh
+# Then open http://localhost:1234/pacman/
 
 # Or manually:
 gleam build
 cp index.html build/dev/javascript/pacman/
+cd build/dev/javascript
 
 # Then start a dev server (choose one):
 # Python
-python3 -m http.server 1234 --directory build/dev/javascript/pacman
+python3 -m http.server 1234
 
 # PHP
-php -S localhost:1234 -t build/dev/javascript/pacman
+php -S localhost:1234
 
 # npx (no installation)
-npx -y live-server@1.2.2 build/dev/javascript/pacman --port=1234
+npx -y live-server@1.2.2 . --port=1234 --open=pacman/
 
-# Open http://localhost:1234 in your browser
+# Open http://localhost:1234/pacman/ in your browser
 ```
 
-**Note**: `gleam run` won't work because Tiramisu uses browser APIs and CDN imports. Always use a dev server.
+**Important**: 
+- `gleam run` won't work (Tiramisu uses browser APIs and CDN imports)
+- Serve from `build/dev/javascript/` not `pacman/` subdirectory (module imports need parent paths)
+- Access via http://localhost:1234/pacman/ not root
 
 ### Format Code
 

@@ -41,7 +41,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./build/dev/javascript/pacman # Build output directory
+          path: ./build/dev/javascript
 
   deploy:
     environment:
