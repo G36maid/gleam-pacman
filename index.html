@@ -122,6 +122,18 @@
   
   <script type="module">
     import { main } from "./pacman.mjs";
+    
+    // Diagnostic: Check if canvas is created
+    setTimeout(() => {
+      const canvas = document.querySelector('#app canvas');
+      if (canvas) {
+        console.log('✓ Canvas created:', canvas.width, 'x', canvas.height);
+        console.log('✓ Canvas position:', canvas.getBoundingClientRect());
+      } else {
+        console.error('✗ Canvas NOT created - Tiramisu initialization failed');
+      }
+    }, 1000);
+    
     main();
     
     // Update UI from game state (will be called by Gleam game loop)
