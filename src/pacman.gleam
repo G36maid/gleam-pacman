@@ -6,6 +6,7 @@ import gleam/time/duration
 import pacman/constants as c
 import pacman/game_state as gs
 import pacman/maze
+import pacman/systems/collision as col
 import pacman/systems/ghost_ai as gai
 import pacman/systems/ghost_mode as gm
 import pacman/systems/movement as mv
@@ -191,13 +192,40 @@ fn update(model: Model, msg: Msg, ctx: tiramisu.Context) {
         |> gm.update_ghost_mode(delta)
         // Sync all ghost modes to match global mode
         |> gm.sync_ghost_modes
+        // Handle collisions
+        |> handle_collisions
+
+      // Check for level complete
+      let final_game_state = case col.check_level_complete(new_game_state) {
+        True -> col.next_level(new_game_state)
+        False -> new_game_state
+      }
 
       #(
-        Model(game_state: new_game_state, input_direction: new_input_dir),
+        Model(game_state: final_game_state, input_direction: new_input_dir),
         effect.dispatch(Tick),
         option.None,
       )
     }
+  }
+}
+
+// Handle all collision types
+fn handle_collisions(game_state: gs.GameState) -> gs.GameState {
+  // Check dot/pellet collisions
+  let after_dots = case
+    col.check_dot_collision(game_state.player, game_state.maze)
+  {
+    Some(col.DotEaten(pos)) -> col.consume_dot(game_state, pos, False)
+    Some(col.PowerPelletEaten(pos)) -> col.consume_dot(game_state, pos, True)
+    _ -> game_state
+  }
+
+  // Check ghost collisions
+  case col.check_ghost_collision(after_dots.player, after_dots.ghosts) {
+    Some(col.GhostCollision(ghost_id)) ->
+      col.handle_ghost_collision(after_dots, ghost_id)
+    _ -> after_dots
   }
 }
 
