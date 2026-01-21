@@ -4,6 +4,8 @@ pub type Tile {
   Empty
   Dot
   PowerPellet
+  Door
+  // Ghost house entrance
 }
 
 /// Create the classic Pac-Man maze (28x31 grid)
@@ -78,10 +80,10 @@ pub fn create_classic_maze() -> List(List(Tile)) {
       Empty, Empty, Empty, Empty, Empty, Empty, Empty, Wall, Wall, Dot, Wall,
       Wall, Wall, Wall, Wall, Wall,
     ],
-    // Row 12
+    // Row 12 - Ghost house door (center columns 13-14)
     [
       Wall, Wall, Wall, Wall, Wall, Wall, Dot, Wall, Wall, Empty, Wall, Wall,
-      Wall, Empty, Empty, Wall, Wall, Wall, Empty, Wall, Wall, Dot, Wall, Wall,
+      Wall, Door, Door, Wall, Wall, Wall, Empty, Wall, Wall, Dot, Wall, Wall,
       Wall, Wall, Wall, Wall,
     ],
     // Row 13

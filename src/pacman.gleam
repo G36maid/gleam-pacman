@@ -4,9 +4,13 @@ import gleam/int
 import gleam/list
 import gleam/option
 import gleam/time/duration
+import pacman/bridge_msg
 import pacman/collision
 import pacman/constants as c
 import pacman/game_state as gs
+import pacman/game_ui
+import pacman/ghost_ai
+import pacman/ghost_collision
 import pacman/maze
 import pacman/movement
 import tiramisu
@@ -19,6 +23,7 @@ import tiramisu/light
 import tiramisu/material
 import tiramisu/scene
 import tiramisu/transform
+import tiramisu/ui
 import vec/vec2
 import vec/vec3
 
@@ -31,22 +36,36 @@ pub type Model {
     // Dynamic maze state
     time: Float,
     input_bindings: input.InputBindings(gs.Direction),
+    game_started: Bool,
+    // Track if game has started (first input received)
+    bridge: ui.Bridge(bridge_msg.BridgeMsg),
   )
 }
 
 pub type Msg {
   Tick
   BackgroundSet
+  FromBridge(bridge_msg.BridgeMsg)
 }
 
 pub fn main() -> Nil {
+  let bridge = ui.new_bridge()
+  let assert Ok(_) = game_ui.start(bridge)
+
   let assert Ok(Nil) =
-    tiramisu.application(init:, update:, view:)
-    |> tiramisu.start("#app", tiramisu.FullScreen, option.None)
+    tiramisu.application(init(bridge, _), update:, view:)
+    |> tiramisu.start(
+      "#app",
+      tiramisu.FullScreen,
+      option.Some(#(bridge, FromBridge)),
+    )
   Nil
 }
 
-fn init(ctx: tiramisu.Context) -> #(Model, Effect(Msg), option.Option(_)) {
+fn init(
+  bridge: ui.Bridge(bridge_msg.BridgeMsg),
+  ctx: tiramisu.Context,
+) -> #(Model, Effect(Msg), option.Option(_)) {
   let bg_effect =
     background.set(
       ctx.scene,
@@ -84,6 +103,8 @@ fn init(ctx: tiramisu.Context) -> #(Model, Effect(Msg), option.Option(_)) {
       maze_tiles: initial_maze_tiles,
       time: 0.0,
       input_bindings: bindings,
+      game_started: False,
+      bridge: bridge,
     ),
     effect.batch([bg_effect, effect.dispatch(Tick)]),
     option.None,
@@ -104,9 +125,37 @@ fn update(
       let player_with_input =
         check_and_buffer_input(model.player, ctx.input, model.input_bindings)
 
-      // Move player
-      let new_player =
-        movement.move_player(player_with_input, model.maze_tiles, delta_seconds)
+      // Check if game should start (any directional input received)
+      let has_input =
+        input.is_action_just_pressed(ctx.input, model.input_bindings, gs.Up)
+        || input.is_action_just_pressed(
+          ctx.input,
+          model.input_bindings,
+          gs.Down,
+        )
+        || input.is_action_just_pressed(
+          ctx.input,
+          model.input_bindings,
+          gs.Left,
+        )
+        || input.is_action_just_pressed(
+          ctx.input,
+          model.input_bindings,
+          gs.Right,
+        )
+
+      let game_started = model.game_started || has_input
+
+      // Only move if game has started
+      let new_player = case game_started {
+        True ->
+          movement.move_player(
+            player_with_input,
+            model.maze_tiles,
+            delta_seconds,
+          )
+        False -> player_with_input
+      }
 
       // Check collision with dots/pellets
       let collision_result =
@@ -136,6 +185,35 @@ fn update(
           }
       }
 
+      // Update ghosts AI (only if game started)
+      let new_ghosts = case game_started {
+        True ->
+          ghost_ai.update_ghosts(
+            model.ghosts,
+            player_with_power.grid_pos,
+            model.maze_tiles,
+            delta_seconds,
+            player_with_power.power_mode,
+          )
+        False -> model.ghosts
+      }
+
+      // Check ghost collision (only if game started)
+      let ghost_collision_result = case game_started {
+        True ->
+          ghost_collision.check_ghost_collision(
+            player_with_power.grid_pos,
+            player_with_power.power_mode,
+            new_ghosts,
+          )
+        False ->
+          ghost_collision.CollisionResult(
+            player_hit: False,
+            ghosts: new_ghosts,
+            ghosts_eaten: 0,
+          )
+      }
+
       // Update phase with new score and dots remaining
       let new_phase = case model.phase {
         gs.Playing(score, lives, level, _) -> {
@@ -147,30 +225,109 @@ fn update(
                 False -> 0
               }
           }
-          gs.Playing(
-            score: score + score_increment,
-            lives: lives,
-            level: level,
-            dots_remaining: collision_result.dots_remaining,
-          )
+
+          // Add points for eaten ghosts (200, 400, 800, 1600)
+          let ghost_score = case ghost_collision_result.ghosts_eaten {
+            1 -> 200
+            2 -> 600
+            // 200 + 400
+            3 -> 1400
+            // 200 + 400 + 800
+            4 -> 3000
+            // 200 + 400 + 800 + 1600
+            _ -> 0
+          }
+
+          // Handle player death
+          let new_lives = case ghost_collision_result.player_hit {
+            True -> lives - 1
+            False -> lives
+          }
+
+          let new_score = score + score_increment + ghost_score
+
+          // Check for game over
+          case new_lives <= 0 {
+            True -> gs.GameOver(final_score: new_score)
+            False -> {
+              // Check for level completion
+              case collision_result.dots_remaining {
+                0 -> {
+                  // Level complete! Reset maze and increase level
+                  gs.Playing(
+                    score: new_score,
+                    lives: new_lives,
+                    level: level + 1,
+                    dots_remaining: count_dots(
+                      maze_to_tiles(maze.create_classic_maze()),
+                    ),
+                  )
+                }
+                _ ->
+                  gs.Playing(
+                    score: new_score,
+                    lives: new_lives,
+                    level: level,
+                    dots_remaining: collision_result.dots_remaining,
+                  )
+              }
+            }
+          }
         }
         _ -> model.phase
       }
 
+      // Reset maze and entities if level completed
+      let final_model = case model.phase, new_phase {
+        gs.Playing(_, _, old_level, _), gs.Playing(_, _, new_level, _)
+          if new_level > old_level
+        -> {
+          // Level changed - reset maze and entities
+          Model(
+            ..model,
+            maze_tiles: maze_to_tiles(maze.create_classic_maze()),
+            player: gs.initial_player(),
+            ghosts: gs.initial_ghosts(),
+            game_started: False,
+          )
+        }
+        _, _ -> model
+      }
+
+      // Send UI updates
+      let ui_effects = case new_phase {
+        gs.Playing(score, lives, level, _) -> [
+          ui.send_to_ui(final_model.bridge, bridge_msg.UpdateScore(score)),
+          ui.send_to_ui(final_model.bridge, bridge_msg.UpdateLives(lives)),
+          ui.send_to_ui(final_model.bridge, bridge_msg.UpdateLevel(level)),
+        ]
+        gs.GameOver(final_score) -> [
+          ui.send_to_ui(
+            final_model.bridge,
+            bridge_msg.ShowGameOver(final_score),
+          ),
+        ]
+        _ -> []
+      }
+
       #(
         Model(
-          ..model,
+          ..final_model,
           player: player_with_power,
+          ghosts: ghost_collision_result.ghosts,
           maze_tiles: collision_result.updated_maze,
           phase: new_phase,
           time: new_time,
+          game_started: game_started,
         ),
-        effect.dispatch(Tick),
+        effect.batch([effect.dispatch(Tick), ..ui_effects]),
         option.None,
       )
     }
 
     BackgroundSet -> #(model, effect.none(), option.None)
+
+    FromBridge(_) -> #(model, effect.none(), option.None)
   }
 }
 
@@ -302,6 +459,25 @@ fn render_tile(tile: gs.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
       ))
     }
 
+    gs.Door -> {
+      // Render door as a horizontal pink line
+      let assert Ok(door_geo) =
+        geometry.box(vec3.Vec3(c.tile_size, c.tile_size /. 8.0, 0.1))
+      let assert Ok(door_mat) =
+        material.new()
+        |> material.with_color(0xFFB8FF)
+        // Pink like Pinky
+        |> material.build()
+
+      option.Some(scene.mesh(
+        id: "door-" <> int.to_string(x) <> "-" <> int.to_string(y),
+        geometry: door_geo,
+        material: door_mat,
+        transform: transform.at(position: vec3.Vec3(world_x, world_y, 0.0)),
+        physics: option.None,
+      ))
+    }
+
     gs.Empty -> option.None
   }
 }
@@ -354,6 +530,7 @@ fn maze_to_tiles(maze: List(List(maze.Tile))) -> List(List(gs.Tile)) {
         maze.Empty -> gs.Empty
         maze.Dot -> gs.Dot
         maze.PowerPellet -> gs.PowerPellet
+        maze.Door -> gs.Door
       }
     })
   })

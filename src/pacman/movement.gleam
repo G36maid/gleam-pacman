@@ -21,13 +21,11 @@ pub fn move_player(
   maze: List(List(gs.Tile)),
   delta_seconds: Float,
 ) -> gs.Player {
-  // Calculate movement speed (tiles per second -> tiles per frame)
-  let tiles_to_move = player.speed *. delta_seconds
+  // Accumulate movement time
+  let new_accumulator = player.move_accumulator +. delta_seconds *. player.speed
 
-  // Only move if enough time has passed (throttle to reasonable speed)
-  // At 60fps with speed=8.0, this gives 8/60 = 0.133 tiles per frame
-  // We move when accumulated movement >= 1.0 tile
-  case tiles_to_move >=. 0.1 {
+  // Move one tile when accumulator >= 1.0
+  case new_accumulator >=. 1.0 {
     True -> {
       // Try to execute buffered turn first
       let player_after_turn = try_turn(player, maze)
@@ -45,13 +43,23 @@ pub fn move_player(
 
       // Check if target position is walkable
       case is_walkable(maze, wrapped_pos) {
-        True -> gs.Player(..player_after_turn, grid_pos: wrapped_pos)
+        True ->
+          gs.Player(
+            ..player_after_turn,
+            grid_pos: wrapped_pos,
+            move_accumulator: new_accumulator -. 1.0,
+          )
         False ->
           // Can't move - wall blocking
-          player_after_turn
+          gs.Player(
+            ..player_after_turn,
+            move_accumulator: new_accumulator -. 1.0,
+          )
       }
     }
-    False -> player
+    False ->
+      // Not enough time accumulated yet
+      gs.Player(..player, move_accumulator: new_accumulator)
   }
 }
 

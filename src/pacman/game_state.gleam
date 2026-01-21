@@ -44,6 +44,8 @@ pub type Player {
     // Can eat ghosts?
     power_timer: Float,
     // Time remaining in power mode (seconds)
+    move_accumulator: Float,
+    // Accumulated movement time for smooth grid movement
   )
 }
 
@@ -79,9 +81,11 @@ pub type Ghost {
     direction: Direction,
     mode: GhostMode,
     mode_timer: Float,
-    // Time remaining in current mode
+    // Time until mode change
     speed: Float,
-    // Movement speed
+    // Movement speed (tiles per second)
+    move_accumulator: Float,
+    // Accumulated movement time for smooth grid movement
   )
 }
 
@@ -112,18 +116,21 @@ pub type Tile {
   Empty
   Dot
   PowerPellet
+  Door
+  // Ghost house entrance
 }
 
-/// Initial player at spawn position (14, 23)
+/// Initial player at spawn position (center bottom, moved up 3 blocks)
 pub fn initial_player() -> Player {
   Player(
     grid_pos: vec2.Vec2(14, 23),
-    direction: Left,
-    next_direction: Left,
+    direction: Down,
+    next_direction: Down,
     speed: 8.0,
     // 8 tiles per second
     power_mode: False,
     power_timer: 0.0,
+    move_accumulator: 0.0,
   )
 }
 
@@ -134,37 +141,41 @@ pub fn initial_ghosts() -> List(Ghost) {
     Ghost(
       ghost_type: Blinky,
       grid_pos: vec2.Vec2(14, 11),
-      direction: Left,
+      direction: Down,
       mode: Scatter,
       mode_timer: 7.0,
       speed: 7.5,
+      move_accumulator: 0.0,
     ),
     // Pinky (Pink) - starts in ghost house center
     Ghost(
       ghost_type: Pinky,
       grid_pos: vec2.Vec2(14, 14),
-      direction: Up,
+      direction: Down,
       mode: Scatter,
       mode_timer: 7.0,
       speed: 7.5,
+      move_accumulator: 0.0,
     ),
     // Inky (Cyan) - starts in ghost house left
     Ghost(
       ghost_type: Inky,
       grid_pos: vec2.Vec2(12, 14),
-      direction: Up,
+      direction: Down,
       mode: Scatter,
       mode_timer: 7.0,
       speed: 7.5,
+      move_accumulator: 0.0,
     ),
     // Clyde (Orange) - starts in ghost house right
     Ghost(
       ghost_type: Clyde,
       grid_pos: vec2.Vec2(16, 14),
-      direction: Up,
+      direction: Down,
       mode: Scatter,
       mode_timer: 7.0,
       speed: 7.5,
+      move_accumulator: 0.0,
     ),
   ]
 }
