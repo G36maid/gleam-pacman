@@ -7,6 +7,7 @@ import pacman/constants as c
 import pacman/game_state as gs
 import pacman/maze
 import pacman/systems/ghost_ai as gai
+import pacman/systems/ghost_mode as gm
 import pacman/systems/movement as mv
 import tiramisu
 import tiramisu/camera
@@ -186,6 +187,10 @@ fn update(model: Model, msg: Msg, ctx: tiramisu.Context) {
 
       let new_game_state =
         gs.GameState(..model.game_state, player: new_player, ghosts: new_ghosts)
+        // Update ghost mode cycling
+        |> gm.update_ghost_mode(delta)
+        // Sync all ghost modes to match global mode
+        |> gm.sync_ghost_modes
 
       #(
         Model(game_state: new_game_state, input_direction: new_input_dir),
