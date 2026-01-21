@@ -7,11 +7,13 @@ import gleam/time/duration
 import pacman/constants as c
 import pacman/game_state as gs
 import pacman/maze
+import pacman/movement
 import tiramisu
 import tiramisu/background
 import tiramisu/camera
 import tiramisu/effect.{type Effect}
 import tiramisu/geometry
+import tiramisu/input
 import tiramisu/light
 import tiramisu/material
 import tiramisu/scene
@@ -27,6 +29,7 @@ pub type Model {
     maze_tiles: List(List(gs.Tile)),
     // Dynamic maze state
     time: Float,
+    input_bindings: input.InputBindings(gs.Direction),
   )
 }
 
@@ -55,6 +58,18 @@ fn init(ctx: tiramisu.Context) -> #(Model, Effect(Msg), option.Option(_)) {
   let initial_maze_tiles = maze_to_tiles(maze.create_classic_maze())
   let dots_count = count_dots(initial_maze_tiles)
 
+  // Setup input bindings for direction
+  let bindings =
+    input.new_bindings()
+    |> input.bind_key(input.ArrowUp, gs.Up)
+    |> input.bind_key(input.ArrowDown, gs.Down)
+    |> input.bind_key(input.ArrowLeft, gs.Left)
+    |> input.bind_key(input.ArrowRight, gs.Right)
+    |> input.bind_key(input.KeyW, gs.Up)
+    |> input.bind_key(input.KeyS, gs.Down)
+    |> input.bind_key(input.KeyA, gs.Left)
+    |> input.bind_key(input.KeyD, gs.Right)
+
   #(
     Model(
       player: gs.initial_player(),
@@ -67,6 +82,7 @@ fn init(ctx: tiramisu.Context) -> #(Model, Effect(Msg), option.Option(_)) {
       ),
       maze_tiles: initial_maze_tiles,
       time: 0.0,
+      input_bindings: bindings,
     ),
     effect.batch([bg_effect, effect.dispatch(Tick)]),
     option.None,
@@ -82,8 +98,22 @@ fn update(
     Tick -> {
       let delta_seconds = duration.to_seconds(ctx.delta_time)
       let new_time = model.time +. delta_seconds
-      #(Model(..model, time: new_time), effect.dispatch(Tick), option.None)
+
+      // Check input and buffer turn direction
+      let player_with_input =
+        check_and_buffer_input(model.player, ctx.input, model.input_bindings)
+
+      // Move player
+      let new_player =
+        movement.move_player(player_with_input, model.maze_tiles, delta_seconds)
+
+      #(
+        Model(..model, player: new_player, time: new_time),
+        effect.dispatch(Tick),
+        option.None,
+      )
     }
+
     BackgroundSet -> #(model, effect.none(), option.None)
   }
 }
@@ -156,7 +186,9 @@ fn render_tile(tile: gs.Tile, x: Int, y: Int) -> option.Option(scene.Node) {
   let offset_y = int.to_float(c.maze_height) *. c.tile_size /. 2.0
 
   let world_x = int.to_float(x) *. c.tile_size +. c.tile_size /. 2.0 -. offset_x
-  let world_y = int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0 -. offset_y
+  // Negate Y to flip vertical axis
+  let world_y =
+    -1.0 *. { int.to_float(y) *. c.tile_size +. c.tile_size /. 2.0 -. offset_y }
 
   case tile {
     gs.Wall -> {
@@ -241,8 +273,12 @@ fn grid_to_world(grid_pos: vec2.Vec2(Int)) -> vec2.Vec2(Float) {
 
   let world_x =
     int.to_float(grid_pos.x) *. c.tile_size +. c.tile_size /. 2.0 -. offset_x
+  // Negate Y to flip vertical axis (row 0 at top, increasing downward)
   let world_y =
-    int.to_float(grid_pos.y) *. c.tile_size +. c.tile_size /. 2.0 -. offset_y
+    -1.0
+    *. {
+      int.to_float(grid_pos.y) *. c.tile_size +. c.tile_size /. 2.0 -. offset_y
+    }
 
   vec2.Vec2(world_x, world_y)
 }
@@ -275,4 +311,31 @@ fn count_dots(maze: List(List(gs.Tile))) -> Int {
       }
     })
   })
+}
+
+// Check input and buffer turn direction (using action bindings)
+fn check_and_buffer_input(
+  player: gs.Player,
+  input_state: input.InputState,
+  bindings: input.InputBindings(gs.Direction),
+) -> gs.Player {
+  // Check each direction using action bindings
+  case input.is_action_just_pressed(input_state, bindings, gs.Up) {
+    True -> gs.Player(..player, next_direction: gs.Up)
+    False ->
+      case input.is_action_just_pressed(input_state, bindings, gs.Down) {
+        True -> gs.Player(..player, next_direction: gs.Down)
+        False ->
+          case input.is_action_just_pressed(input_state, bindings, gs.Left) {
+            True -> gs.Player(..player, next_direction: gs.Left)
+            False ->
+              case
+                input.is_action_just_pressed(input_state, bindings, gs.Right)
+              {
+                True -> gs.Player(..player, next_direction: gs.Right)
+                False -> player
+              }
+          }
+      }
+  }
 }
