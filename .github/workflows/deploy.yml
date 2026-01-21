@@ -35,6 +35,9 @@ jobs:
       - name: Build Site
         run: gleam build
 
+      - name: Copy index.html to build output
+        run: cp index.html build/dev/javascript/pacman/
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
