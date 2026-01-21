@@ -39,15 +39,30 @@ A fully functional **classic Pac-Man game** built with [Gleam](https://gleam.run
 
 ### Run Locally
 
+Tiramisu games require a browser environment with module support. Use a local dev server:
+
 ```sh
 # Build the game
 gleam build
 
-# Start development server
+# Copy index.html to build output
+cp index.html build/dev/javascript/pacman/
+
+# Start development server (choose one):
+
+# Option 1: Using npx (no installation required)
 npx -y live-server@1.2.2 build/dev/javascript/pacman --port=1234
 
-# Open http://localhost:1234
+# Option 2: Using Python
+python3 -m http.server 1234 --directory build/dev/javascript/pacman
+
+# Option 3: Using PHP
+php -S localhost:1234 -t build/dev/javascript/pacman
+
+# Open http://localhost:1234 in your browser
 ```
+
+**Note**: `gleam run` won't work because Tiramisu uses browser APIs and CDN imports. Always use a dev server.
 
 ### Format Code
 
