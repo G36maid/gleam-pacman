@@ -130,16 +130,16 @@ pub fn initial_player() -> Player {
 /// Initial ghosts at spawn positions
 pub fn initial_ghosts() -> List(Ghost) {
   [
-    // Blinky (Red) - starts in top right
+    // Blinky (Red) - starts outside ghost house, above the door
     Ghost(
       ghost_type: Blinky,
-      grid_pos: vec2.Vec2(25, 1),
+      grid_pos: vec2.Vec2(14, 11),
       direction: Left,
       mode: Scatter,
       mode_timer: 7.0,
       speed: 7.5,
     ),
-    // Pinky (Pink) - starts in ghost house
+    // Pinky (Pink) - starts in ghost house center
     Ghost(
       ghost_type: Pinky,
       grid_pos: vec2.Vec2(14, 14),
@@ -148,7 +148,7 @@ pub fn initial_ghosts() -> List(Ghost) {
       mode_timer: 7.0,
       speed: 7.5,
     ),
-    // Inky (Cyan) - starts in ghost house
+    // Inky (Cyan) - starts in ghost house left
     Ghost(
       ghost_type: Inky,
       grid_pos: vec2.Vec2(12, 14),
@@ -157,7 +157,7 @@ pub fn initial_ghosts() -> List(Ghost) {
       mode_timer: 7.0,
       speed: 7.5,
     ),
-    // Clyde (Orange) - starts in ghost house
+    // Clyde (Orange) - starts in ghost house right
     Ghost(
       ghost_type: Clyde,
       grid_pos: vec2.Vec2(16, 14),

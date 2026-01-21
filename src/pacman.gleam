@@ -194,6 +194,9 @@ fn view(model: Model, ctx: tiramisu.Context) -> scene.Node {
   // Render player
   let player_node = render_player(model.player)
 
+  // Render ghosts
+  let ghost_nodes = render_ghosts(model.ghosts, model.player.power_mode)
+
   scene.empty(
     id: "Scene",
     transform: transform.identity,
@@ -215,6 +218,7 @@ fn view(model: Model, ctx: tiramisu.Context) -> scene.Node {
         player_node,
       ],
       maze_nodes,
+      ghost_nodes,
     ]),
   )
 }
@@ -394,4 +398,54 @@ fn check_and_buffer_input(
           }
       }
   }
+}
+
+// Render all ghosts
+fn render_ghosts(
+  ghosts: List(gs.Ghost),
+  player_power_mode: Bool,
+) -> List(scene.Node) {
+  ghosts
+  |> list.map(fn(ghost) { render_ghost(ghost, player_power_mode) })
+}
+
+// Render individual ghost
+fn render_ghost(ghost: gs.Ghost, player_power_mode: Bool) -> scene.Node {
+  let world_pos = grid_to_world(ghost.grid_pos)
+
+  // Determine ghost color based on mode
+  let ghost_color = case ghost.mode {
+    gs.Frightened -> gs.frightened_color
+    gs.Eaten -> 0xFFFFFF
+    // White when eaten
+    _ ->
+      case player_power_mode {
+        True -> gs.frightened_color
+        // Blue when player has power
+        False -> gs.ghost_color(ghost.ghost_type)
+        // Normal color
+      }
+  }
+
+  let assert Ok(ghost_geo) =
+    geometry.sphere(radius: c.tile_size /. 2.5, segments: vec2.Vec2(16, 12))
+  let assert Ok(ghost_mat) =
+    material.new()
+    |> material.with_color(ghost_color)
+    |> material.build()
+
+  let ghost_id = case ghost.ghost_type {
+    gs.Blinky -> "ghost-blinky"
+    gs.Pinky -> "ghost-pinky"
+    gs.Inky -> "ghost-inky"
+    gs.Clyde -> "ghost-clyde"
+  }
+
+  scene.mesh(
+    id: ghost_id,
+    geometry: ghost_geo,
+    material: ghost_mat,
+    transform: transform.at(position: vec3.Vec3(world_pos.x, world_pos.y, 0.0)),
+    physics: option.None,
+  )
 }
