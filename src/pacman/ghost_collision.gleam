@@ -34,7 +34,12 @@ pub fn check_ghost_collision(
               // Player in power mode, ghost is frightened -> eat ghost
               gs.Frightened, True -> {
                 let eaten_ghost =
-                  gs.Ghost(..ghost, mode: gs.Eaten, mode_timer: 0.0)
+                  gs.Ghost(
+                    ..ghost,
+                    mode: gs.Eaten,
+                    mode_timer: 0.0,
+                    house_state: gs.Returning,
+                  )
                 CollisionResult(
                   ..acc,
                   ghosts: [eaten_ghost, ..acc.ghosts],

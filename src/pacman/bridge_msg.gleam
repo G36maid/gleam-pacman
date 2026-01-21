@@ -1,10 +1,15 @@
 /// Bridge messages for Tiramisu-Lustre communication
 pub type BridgeMsg {
-  // Game -> UI
+  // Game -> UI (display updates)
   UpdateScore(Int)
   UpdateLives(Int)
   UpdateLevel(Int)
+  ShowStartMenu
+  ShowLevelComplete(score: Int, level: Int)
   ShowGameOver(Int)
-  HideGameOver
-  // UI -> Game (none for now, UI is display-only)
+  HideAllScreens
+  // UI -> Game (player actions)
+  StartGame
+  ContinueToNextLevel
+  RestartGame
 }

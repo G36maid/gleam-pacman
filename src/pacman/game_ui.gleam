@@ -14,7 +14,9 @@ pub type Model {
     score: Int,
     lives: Int,
     level: Int,
-    game_over: Bool,
+    show_start_menu: Bool,
+    show_level_complete: Bool,
+    show_game_over: Bool,
     final_score: Int,
   )
 }
@@ -38,7 +40,9 @@ fn init(
       score: 0,
       lives: 3,
       level: 1,
-      game_over: False,
+      show_start_menu: True,
+      show_level_complete: False,
+      show_game_over: False,
       final_score: 0,
     ),
     ui.register_lustre(bridge, FromBridge),
@@ -59,20 +63,55 @@ fn update(model: Model, msg: Msg) -> #(Model, effect.Effect(Msg)) {
       Model(..model, level: level),
       effect.none(),
     )
+    FromBridge(bridge_msg.ShowStartMenu) -> #(
+      Model(
+        ..model,
+        show_start_menu: True,
+        show_level_complete: False,
+        show_game_over: False,
+      ),
+      effect.none(),
+    )
+    FromBridge(bridge_msg.ShowLevelComplete(score, level)) -> #(
+      Model(
+        ..model,
+        score: score,
+        level: level,
+        show_start_menu: False,
+        show_level_complete: True,
+        show_game_over: False,
+      ),
+      effect.none(),
+    )
     FromBridge(bridge_msg.ShowGameOver(final_score)) -> #(
-      Model(..model, game_over: True, final_score: final_score),
+      Model(
+        ..model,
+        show_start_menu: False,
+        show_level_complete: False,
+        show_game_over: True,
+        final_score: final_score,
+      ),
       effect.none(),
     )
-    FromBridge(bridge_msg.HideGameOver) -> #(
-      Model(..model, game_over: False),
+    FromBridge(bridge_msg.HideAllScreens) -> #(
+      Model(
+        ..model,
+        show_start_menu: False,
+        show_level_complete: False,
+        show_game_over: False,
+      ),
       effect.none(),
     )
+    // These messages come from keyboard in main game, not from UI
+    FromBridge(bridge_msg.StartGame) -> #(model, effect.none())
+    FromBridge(bridge_msg.ContinueToNextLevel) -> #(model, effect.none())
+    FromBridge(bridge_msg.RestartGame) -> #(model, effect.none())
   }
 }
 
 fn view(model: Model) -> element.Element(Msg) {
-  html.div([], [
-    // Score/Lives/Level overlay
+  html.div([attribute.style("pointer-events", "none")], [
+    // Score/Lives/Level overlay (always shown during gameplay)
     html.div(
       [
         attribute.style("position", "absolute"),
@@ -89,8 +128,86 @@ fn view(model: Model) -> element.Element(Msg) {
         html.div([], [element.text("LEVEL: " <> int.to_string(model.level))]),
       ],
     ),
+    // Start Menu overlay
+    case model.show_start_menu {
+      True ->
+        html.div(
+          [
+            attribute.style("position", "absolute"),
+            attribute.style("top", "50%"),
+            attribute.style("left", "50%"),
+            attribute.style("transform", "translate(-50%, -50%)"),
+            attribute.style("text-align", "center"),
+            attribute.style("font-family", "'Courier New', monospace"),
+            attribute.style("text-shadow", "3px 3px 6px rgba(0,0,0,0.9)"),
+          ],
+          [
+            html.div(
+              [
+                attribute.style("font-size", "64px"),
+                attribute.style("color", "yellow"),
+                attribute.style("margin-bottom", "30px"),
+              ],
+              [element.text("PAC-MAN")],
+            ),
+            html.div(
+              [
+                attribute.style("font-size", "24px"),
+                attribute.style("color", "white"),
+              ],
+              [element.text("Press SPACE to start")],
+            ),
+          ],
+        )
+      False -> element.none()
+    },
+    // Level Complete overlay
+    case model.show_level_complete {
+      True ->
+        html.div(
+          [
+            attribute.style("position", "absolute"),
+            attribute.style("top", "50%"),
+            attribute.style("left", "50%"),
+            attribute.style("transform", "translate(-50%, -50%)"),
+            attribute.style("text-align", "center"),
+            attribute.style("font-family", "'Courier New', monospace"),
+            attribute.style("text-shadow", "3px 3px 6px rgba(0,0,0,0.9)"),
+          ],
+          [
+            html.div(
+              [
+                attribute.style("font-size", "48px"),
+                attribute.style("color", "yellow"),
+                attribute.style("margin-bottom", "20px"),
+              ],
+              [
+                element.text(
+                  "LEVEL " <> int.to_string(model.level) <> " COMPLETE!",
+                ),
+              ],
+            ),
+            html.div(
+              [
+                attribute.style("font-size", "24px"),
+                attribute.style("color", "white"),
+              ],
+              [element.text("Score: " <> int.to_string(model.score))],
+            ),
+            html.div(
+              [
+                attribute.style("font-size", "20px"),
+                attribute.style("color", "white"),
+                attribute.style("margin-top", "30px"),
+              ],
+              [element.text("Press SPACE to continue")],
+            ),
+          ],
+        )
+      False -> element.none()
+    },
     // Game Over overlay
-    case model.game_over {
+    case model.show_game_over {
       True ->
         html.div(
           [
@@ -121,6 +238,14 @@ fn view(model: Model) -> element.Element(Msg) {
                   "FINAL SCORE: " <> int.to_string(model.final_score),
                 ),
               ],
+            ),
+            html.div(
+              [
+                attribute.style("font-size", "20px"),
+                attribute.style("color", "white"),
+                attribute.style("margin-top", "30px"),
+              ],
+              [element.text("Press SPACE to restart")],
             ),
           ],
         )

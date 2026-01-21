@@ -76,7 +76,6 @@ fn init(
 
   // Convert static maze to dynamic tile state
   let initial_maze_tiles = maze_to_tiles(maze.create_classic_maze())
-  let dots_count = count_dots(initial_maze_tiles)
 
   // Setup input bindings for direction
   let bindings =
@@ -90,23 +89,25 @@ fn init(
     |> input.bind_key(input.KeyA, gs.Left)
     |> input.bind_key(input.KeyD, gs.Right)
 
+  let init_effects =
+    effect.batch([
+      bg_effect,
+      effect.dispatch(Tick),
+      ui.send_to_ui(bridge, bridge_msg.ShowStartMenu),
+    ])
+
   #(
     Model(
       player: gs.initial_player(),
       ghosts: gs.initial_ghosts(),
-      phase: gs.Playing(
-        score: 0,
-        lives: 3,
-        level: 1,
-        dots_remaining: dots_count,
-      ),
+      phase: gs.StartMenu,
       maze_tiles: initial_maze_tiles,
       time: 0.0,
       input_bindings: bindings,
       game_started: False,
       bridge: bridge,
     ),
-    effect.batch([bg_effect, effect.dispatch(Tick)]),
+    init_effects,
     option.None,
   )
 }
@@ -121,208 +122,301 @@ fn update(
       let delta_seconds = duration.to_seconds(ctx.delta_time)
       let new_time = model.time +. delta_seconds
 
-      // Check input and buffer turn direction
-      let player_with_input =
-        check_and_buffer_input(model.player, ctx.input, model.input_bindings)
+      // Handle menu transitions with SPACE key
+      let space_pressed = input.is_key_just_pressed(ctx.input, input.Space)
 
-      // Check if game should start (any directional input received)
-      let has_input =
-        input.is_action_just_pressed(ctx.input, model.input_bindings, gs.Up)
-        || input.is_action_just_pressed(
-          ctx.input,
-          model.input_bindings,
-          gs.Down,
-        )
-        || input.is_action_just_pressed(
-          ctx.input,
-          model.input_bindings,
-          gs.Left,
-        )
-        || input.is_action_just_pressed(
-          ctx.input,
-          model.input_bindings,
-          gs.Right,
-        )
-
-      let game_started = model.game_started || has_input
-
-      // Only move if game has started
-      let new_player = case game_started {
-        True ->
-          movement.move_player(
-            player_with_input,
-            model.maze_tiles,
-            delta_seconds,
+      case model.phase, space_pressed {
+        gs.StartMenu, True -> {
+          // Transition from StartMenu to Playing
+          let initial_maze = maze_to_tiles(maze.create_classic_maze())
+          let dots_count = count_dots(initial_maze)
+          #(
+            Model(
+              ..model,
+              phase: gs.Playing(
+                score: 0,
+                lives: 3,
+                level: 1,
+                dots_remaining: dots_count,
+              ),
+              player: gs.initial_player(),
+              ghosts: gs.initial_ghosts(),
+              maze_tiles: initial_maze,
+              game_started: False,
+              time: new_time,
+            ),
+            effect.batch([
+              effect.dispatch(Tick),
+              ui.send_to_ui(model.bridge, bridge_msg.HideAllScreens),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateScore(0)),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateLives(3)),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateLevel(1)),
+            ]),
+            option.None,
           )
-        False -> player_with_input
-      }
+        }
 
-      // Check collision with dots/pellets
-      let collision_result =
-        collision.check_dot_collision(new_player.grid_pos, model.maze_tiles)
-
-      // Update player power mode if ate power pellet
-      let player_with_power = case collision_result.ate_power_pellet {
-        True ->
-          gs.Player(
-            ..new_player,
-            power_mode: True,
-            power_timer: 8.0,
-            // 8 seconds of power mode
+        gs.LevelComplete(score, lives, level), True -> {
+          // Transition from LevelComplete to next level
+          let initial_maze = maze_to_tiles(maze.create_classic_maze())
+          let dots_count = count_dots(initial_maze)
+          #(
+            Model(
+              ..model,
+              phase: gs.Playing(
+                score: score,
+                lives: lives,
+                level: level + 1,
+                dots_remaining: dots_count,
+              ),
+              player: gs.initial_player(),
+              ghosts: gs.initial_ghosts(),
+              maze_tiles: initial_maze,
+              game_started: False,
+              time: new_time,
+            ),
+            effect.batch([
+              effect.dispatch(Tick),
+              ui.send_to_ui(model.bridge, bridge_msg.HideAllScreens),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateScore(score)),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateLives(lives)),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateLevel(level + 1)),
+            ]),
+            option.None,
           )
-        False ->
-          // Decrease power timer if in power mode
-          case new_player.power_mode {
-            True -> {
-              let new_timer = new_player.power_timer -. delta_seconds
-              case new_timer <=. 0.0 {
-                True ->
-                  gs.Player(..new_player, power_mode: False, power_timer: 0.0)
-                False -> gs.Player(..new_player, power_timer: new_timer)
-              }
-            }
-            False -> new_player
+        }
+
+        gs.GameOver(_final_score), True -> {
+          // Transition from GameOver back to StartMenu
+          #(
+            Model(
+              ..model,
+              phase: gs.StartMenu,
+              player: gs.initial_player(),
+              ghosts: gs.initial_ghosts(),
+              maze_tiles: maze_to_tiles(maze.create_classic_maze()),
+              game_started: False,
+              time: new_time,
+            ),
+            effect.batch([
+              effect.dispatch(Tick),
+              ui.send_to_ui(model.bridge, bridge_msg.ShowStartMenu),
+            ]),
+            option.None,
+          )
+        }
+
+        gs.Playing(..), _ -> {
+          // Normal gameplay continues
+          // Check input and buffer turn direction
+          let player_with_input =
+            check_and_buffer_input(
+              model.player,
+              ctx.input,
+              model.input_bindings,
+            )
+
+          // Check if game should start (any directional input received)
+          let has_input =
+            input.is_action_just_pressed(ctx.input, model.input_bindings, gs.Up)
+            || input.is_action_just_pressed(
+              ctx.input,
+              model.input_bindings,
+              gs.Down,
+            )
+            || input.is_action_just_pressed(
+              ctx.input,
+              model.input_bindings,
+              gs.Left,
+            )
+            || input.is_action_just_pressed(
+              ctx.input,
+              model.input_bindings,
+              gs.Right,
+            )
+
+          let game_started = model.game_started || has_input
+
+          // Only move if game has started
+          let new_player = case game_started {
+            True ->
+              movement.move_player(
+                player_with_input,
+                model.maze_tiles,
+                delta_seconds,
+              )
+            False -> player_with_input
           }
-      }
 
-      // Update ghosts AI (only if game started)
-      let new_ghosts = case game_started {
-        True ->
-          ghost_ai.update_ghosts(
-            model.ghosts,
-            player_with_power.grid_pos,
-            model.maze_tiles,
-            delta_seconds,
-            player_with_power.power_mode,
-          )
-        False -> model.ghosts
-      }
+          // Check collision with dots/pellets
+          let collision_result =
+            collision.check_dot_collision(new_player.grid_pos, model.maze_tiles)
 
-      // Check ghost collision (only if game started)
-      let ghost_collision_result = case game_started {
-        True ->
-          ghost_collision.check_ghost_collision(
-            player_with_power.grid_pos,
-            player_with_power.power_mode,
-            new_ghosts,
-          )
-        False ->
-          ghost_collision.CollisionResult(
-            player_hit: False,
-            ghosts: new_ghosts,
-            ghosts_eaten: 0,
-          )
-      }
-
-      // Update phase with new score and dots remaining
-      let new_phase = case model.phase {
-        gs.Playing(score, lives, level, _) -> {
-          let score_increment = case collision_result.ate_dot {
-            True -> 10
+          // Update player power mode if ate power pellet
+          let player_with_power = case collision_result.ate_power_pellet {
+            True ->
+              gs.Player(
+                ..new_player,
+                power_mode: True,
+                power_timer: 8.0,
+                // 8 seconds of power mode
+              )
             False ->
-              case collision_result.ate_power_pellet {
-                True -> 50
-                False -> 0
+              // Decrease power timer if in power mode
+              case new_player.power_mode {
+                True -> {
+                  let new_timer = new_player.power_timer -. delta_seconds
+                  case new_timer <=. 0.0 {
+                    True ->
+                      gs.Player(
+                        ..new_player,
+                        power_mode: False,
+                        power_timer: 0.0,
+                      )
+                    False -> gs.Player(..new_player, power_timer: new_timer)
+                  }
+                }
+                False -> new_player
               }
           }
 
-          // Add points for eaten ghosts (200, 400, 800, 1600)
-          let ghost_score = case ghost_collision_result.ghosts_eaten {
-            1 -> 200
-            2 -> 600
-            // 200 + 400
-            3 -> 1400
-            // 200 + 400 + 800
-            4 -> 3000
-            // 200 + 400 + 800 + 1600
-            _ -> 0
+          // Update ghosts AI (only if game started)
+          let new_ghosts = case game_started {
+            True -> {
+              let #(dots_remaining, level) = case model.phase {
+                gs.Playing(_, _, lvl, dots) -> #(dots, lvl)
+                _ -> #(0, 1)
+              }
+              ghost_ai.update_ghosts(
+                model.ghosts,
+                player_with_power.grid_pos,
+                model.maze_tiles,
+                delta_seconds,
+                player_with_power.power_mode,
+                dots_remaining,
+                level,
+              )
+            }
+            False -> model.ghosts
           }
 
-          // Handle player death
-          let new_lives = case ghost_collision_result.player_hit {
-            True -> lives - 1
-            False -> lives
+          // Check ghost collision (only if game started)
+          let ghost_collision_result = case game_started {
+            True ->
+              ghost_collision.check_ghost_collision(
+                player_with_power.grid_pos,
+                player_with_power.power_mode,
+                new_ghosts,
+              )
+            False ->
+              ghost_collision.CollisionResult(
+                player_hit: False,
+                ghosts: new_ghosts,
+                ghosts_eaten: 0,
+              )
           }
 
-          let new_score = score + score_increment + ghost_score
+          // Update phase with new score and dots remaining
+          let new_phase = case model.phase {
+            gs.Playing(score, lives, level, _) -> {
+              let score_increment = case collision_result.ate_dot {
+                True -> 10
+                False ->
+                  case collision_result.ate_power_pellet {
+                    True -> 50
+                    False -> 0
+                  }
+              }
 
-          // Check for game over
-          case new_lives <= 0 {
-            True -> gs.GameOver(final_score: new_score)
-            False -> {
-              // Check for level completion
-              case collision_result.dots_remaining {
-                0 -> {
-                  // Level complete! Reset maze and increase level
-                  gs.Playing(
-                    score: new_score,
-                    lives: new_lives,
-                    level: level + 1,
-                    dots_remaining: count_dots(
-                      maze_to_tiles(maze.create_classic_maze()),
-                    ),
-                  )
+              // Add points for eaten ghosts (200, 400, 800, 1600)
+              let ghost_score = case ghost_collision_result.ghosts_eaten {
+                1 -> 200
+                2 -> 600
+                // 200 + 400
+                3 -> 1400
+                // 200 + 400 + 800
+                4 -> 3000
+                // 200 + 400 + 800 + 1600
+                _ -> 0
+              }
+
+              // Handle player death
+              let new_lives = case ghost_collision_result.player_hit {
+                True -> lives - 1
+                False -> lives
+              }
+
+              let new_score = score + score_increment + ghost_score
+
+              // Check for game over
+              case new_lives <= 0 {
+                True -> gs.GameOver(final_score: new_score)
+                False -> {
+                  // Check for level completion
+                  case collision_result.dots_remaining {
+                    0 -> {
+                      // Level complete! Transition to LevelComplete phase
+                      gs.LevelComplete(
+                        score: new_score,
+                        lives: new_lives,
+                        level: level,
+                      )
+                    }
+                    _ ->
+                      gs.Playing(
+                        score: new_score,
+                        lives: new_lives,
+                        level: level,
+                        dots_remaining: collision_result.dots_remaining,
+                      )
+                  }
                 }
-                _ ->
-                  gs.Playing(
-                    score: new_score,
-                    lives: new_lives,
-                    level: level,
-                    dots_remaining: collision_result.dots_remaining,
-                  )
               }
             }
+            _ -> model.phase
           }
-        }
-        _ -> model.phase
-      }
 
-      // Reset maze and entities if level completed
-      let final_model = case model.phase, new_phase {
-        gs.Playing(_, _, old_level, _), gs.Playing(_, _, new_level, _)
-          if new_level > old_level
-        -> {
-          // Level changed - reset maze and entities
-          Model(
-            ..model,
-            maze_tiles: maze_to_tiles(maze.create_classic_maze()),
-            player: gs.initial_player(),
-            ghosts: gs.initial_ghosts(),
-            game_started: False,
+          // Send UI updates
+          let ui_effects = case new_phase {
+            gs.Playing(score, lives, level, _) -> [
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateScore(score)),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateLives(lives)),
+              ui.send_to_ui(model.bridge, bridge_msg.UpdateLevel(level)),
+            ]
+            gs.GameOver(final_score) -> [
+              ui.send_to_ui(model.bridge, bridge_msg.ShowGameOver(final_score)),
+            ]
+            gs.LevelComplete(score, _lives, level) -> [
+              ui.send_to_ui(
+                model.bridge,
+                bridge_msg.ShowLevelComplete(score, level),
+              ),
+            ]
+            _ -> []
+          }
+
+          #(
+            Model(
+              ..model,
+              player: player_with_power,
+              ghosts: ghost_collision_result.ghosts,
+              maze_tiles: collision_result.updated_maze,
+              phase: new_phase,
+              time: new_time,
+              game_started: game_started,
+            ),
+            effect.batch([effect.dispatch(Tick), ..ui_effects]),
+            option.None,
           )
         }
-        _, _ -> model
-      }
 
-      // Send UI updates
-      let ui_effects = case new_phase {
-        gs.Playing(score, lives, level, _) -> [
-          ui.send_to_ui(final_model.bridge, bridge_msg.UpdateScore(score)),
-          ui.send_to_ui(final_model.bridge, bridge_msg.UpdateLives(lives)),
-          ui.send_to_ui(final_model.bridge, bridge_msg.UpdateLevel(level)),
-        ]
-        gs.GameOver(final_score) -> [
-          ui.send_to_ui(
-            final_model.bridge,
-            bridge_msg.ShowGameOver(final_score),
-          ),
-        ]
-        _ -> []
+        // Non-Playing phases - just tick time
+        _, _ -> #(
+          Model(..model, time: new_time),
+          effect.dispatch(Tick),
+          option.None,
+        )
       }
-
-      #(
-        Model(
-          ..final_model,
-          player: player_with_power,
-          ghosts: ghost_collision_result.ghosts,
-          maze_tiles: collision_result.updated_maze,
-          phase: new_phase,
-          time: new_time,
-          game_started: game_started,
-        ),
-        effect.batch([effect.dispatch(Tick), ..ui_effects]),
-        option.None,
-      )
     }
 
     BackgroundSet -> #(model, effect.none(), option.None)

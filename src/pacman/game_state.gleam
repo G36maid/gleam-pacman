@@ -73,6 +73,18 @@ pub type GhostMode {
   // Return to spawn after being eaten
 }
 
+/// Ghost house state (where is ghost relative to house)
+pub type GhostHouseState {
+  InHouse
+  // Inside ghost house, not released yet
+  Exiting
+  // Leaving ghost house through door
+  Outside
+  // Normal patrolling/chasing
+  Returning
+  // Dead, returning to house
+}
+
 /// Ghost state
 pub type Ghost {
   Ghost(
@@ -86,15 +98,22 @@ pub type Ghost {
     // Movement speed (tiles per second)
     move_accumulator: Float,
     // Accumulated movement time for smooth grid movement
+    house_state: GhostHouseState,
+    // Current state relative to ghost house
   )
 }
 
 /// Overall game phase
 pub type GamePhase {
+  StartMenu
+  // Game not started yet - show start menu
   Playing(score: Int, lives: Int, level: Int, dots_remaining: Int)
   Paused(score: Int, lives: Int, level: Int)
+  LevelComplete(score: Int, lives: Int, level: Int)
+  // Level finished, waiting to continue to next level
   GameOver(final_score: Int)
   Victory(final_score: Int, level: Int)
+  // Completed all levels (optional, for future use)
 }
 
 /// Complete game state model
@@ -146,6 +165,7 @@ pub fn initial_ghosts() -> List(Ghost) {
       mode_timer: 7.0,
       speed: 7.5,
       move_accumulator: 0.0,
+      house_state: Outside,
     ),
     // Pinky (Pink) - starts in ghost house center
     Ghost(
@@ -156,6 +176,7 @@ pub fn initial_ghosts() -> List(Ghost) {
       mode_timer: 7.0,
       speed: 7.5,
       move_accumulator: 0.0,
+      house_state: InHouse,
     ),
     // Inky (Cyan) - starts in ghost house left
     Ghost(
@@ -166,6 +187,7 @@ pub fn initial_ghosts() -> List(Ghost) {
       mode_timer: 7.0,
       speed: 7.5,
       move_accumulator: 0.0,
+      house_state: InHouse,
     ),
     // Clyde (Orange) - starts in ghost house right
     Ghost(
@@ -176,6 +198,7 @@ pub fn initial_ghosts() -> List(Ghost) {
       mode_timer: 7.0,
       speed: 7.5,
       move_accumulator: 0.0,
+      house_state: InHouse,
     ),
   ]
 }

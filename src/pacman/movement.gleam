@@ -2,12 +2,66 @@
 import pacman/game_state as gs
 import vec/vec2
 
-/// Check if a tile is walkable
+/// Check if a tile is walkable (generic - used by player)
 pub fn is_walkable(maze: List(List(gs.Tile)), pos: vec2.Vec2(Int)) -> Bool {
   case list_at(maze, pos.y) {
     Ok(row) ->
       case list_at(row, pos.x) {
         Ok(gs.Wall) -> False
+        Ok(gs.Door) -> False
+        // Player cannot walk through door
+        Ok(_) -> True
+        Error(_) -> False
+      }
+    Error(_) -> False
+  }
+}
+
+/// Check if a tile is walkable for ghosts (can pass through door when exiting/returning)
+pub fn is_walkable_for_ghost(
+  maze: List(List(gs.Tile)),
+  pos: vec2.Vec2(Int),
+  house_state: gs.GhostHouseState,
+) -> Bool {
+  // Special case: Returning (eaten) ghosts can walk through ALL walls everywhere
+  case house_state {
+    gs.Returning -> {
+      // Eaten ghosts can walk through any wall tile
+      case list_at(maze, pos.y) {
+        Ok(row) ->
+          case list_at(row, pos.x) {
+            Ok(gs.Wall) -> True
+            // Eaten ghosts phase through walls
+            Ok(gs.Door) -> True
+            // Can pass through door
+            Ok(_) -> True
+            Error(_) -> False
+          }
+        Error(_) -> False
+      }
+    }
+    _ -> check_tile_walkable(maze, pos, house_state)
+  }
+}
+
+/// Helper to check tile walkability with door access control
+fn check_tile_walkable(
+  maze: List(List(gs.Tile)),
+  pos: vec2.Vec2(Int),
+  house_state: gs.GhostHouseState,
+) -> Bool {
+  case list_at(maze, pos.y) {
+    Ok(row) ->
+      case list_at(row, pos.x) {
+        Ok(gs.Wall) -> False
+        Ok(gs.Door) -> {
+          // Door is only walkable when exiting or returning
+          case house_state {
+            gs.Exiting -> True
+            gs.Returning -> True
+            _ -> False
+          }
+        }
         Ok(_) -> True
         Error(_) -> False
       }

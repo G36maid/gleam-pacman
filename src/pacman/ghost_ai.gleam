@@ -12,11 +12,107 @@ pub fn update_ghosts(
   maze: List(List(gs.Tile)),
   delta_seconds: Float,
   player_power_mode: Bool,
+  dots_remaining: Int,
+  level: Int,
 ) -> List(gs.Ghost) {
   ghosts
   |> list.map(fn(ghost) {
-    update_ghost(ghost, player_pos, maze, delta_seconds, player_power_mode)
+    update_ghost(
+      ghost,
+      player_pos,
+      maze,
+      delta_seconds,
+      player_power_mode,
+      dots_remaining,
+      level,
+    )
   })
+}
+
+/// Check if ghost should be released from house based on dots eaten
+fn check_ghost_release(
+  ghost: gs.Ghost,
+  dots_remaining: Int,
+  _level: Int,
+) -> gs.Ghost {
+  case ghost.house_state {
+    gs.InHouse -> {
+      // Determine if ghost should be released based on dots eaten
+      // Total collectibles: ~245 (241 dots + 4 power pellets)
+      let should_release = case ghost.ghost_type {
+        gs.Blinky -> True
+        // Blinky never in house
+        gs.Pinky -> True
+        // Pinky exits immediately at game start
+        gs.Inky -> {
+          // Inky exits after 30 dots eaten (245 - 30 = 215 remaining)
+          dots_remaining <= 215
+        }
+        gs.Clyde -> {
+          // Clyde exits after 1/3 of dots eaten (245 - 82 = 163 remaining)
+          dots_remaining <= 163
+        }
+      }
+
+      case should_release {
+        True -> gs.Ghost(..ghost, house_state: gs.Exiting)
+        False -> ghost
+      }
+    }
+    _ -> ghost
+  }
+}
+
+/// Apply special steering for ghosts in/exiting house
+fn apply_house_steering(ghost: gs.Ghost) -> gs.Ghost {
+  case ghost.house_state {
+    gs.InHouse -> {
+      // Move up/down in house until released
+      case ghost.grid_pos.y {
+        y if y <= 13 -> gs.Ghost(..ghost, direction: gs.Down)
+        y if y >= 15 -> gs.Ghost(..ghost, direction: gs.Up)
+        _ -> ghost
+      }
+    }
+    gs.Exiting -> {
+      // Navigate to door (14, 12) and exit upward
+      case ghost.grid_pos.x, ghost.grid_pos.y {
+        14, 12 -> {
+          // At door, exit and go outside
+          gs.Ghost(..ghost, direction: gs.Up, house_state: gs.Outside)
+        }
+        x, 14 if x < 14 -> gs.Ghost(..ghost, direction: gs.Right)
+        // Move right to center
+        x, 14 if x > 14 -> gs.Ghost(..ghost, direction: gs.Left)
+        // Move left to center
+        14, y if y > 12 -> gs.Ghost(..ghost, direction: gs.Up)
+        // Move up to door
+        _, _ -> ghost
+      }
+    }
+    gs.Returning -> {
+      // Navigate back to house center (14, 14)
+      case ghost.grid_pos.x, ghost.grid_pos.y {
+        14, 14 -> {
+          // Reached house center, revive
+          gs.Ghost(..ghost, house_state: gs.InHouse, mode: gs.Scatter)
+        }
+        // Force DOWN when at door entrance (14, 11) or (14, 12)
+        14, y if y == 11 || y == 12 -> gs.Ghost(..ghost, direction: gs.Down)
+        14, y if y > 12 && y < 14 -> {
+          // Continue down to center
+          gs.Ghost(..ghost, direction: gs.Down)
+        }
+        // Navigate toward x=14 first (door column)
+        x, _ if x < 14 -> gs.Ghost(..ghost, direction: gs.Right)
+        x, _ if x > 14 -> gs.Ghost(..ghost, direction: gs.Left)
+        _, _ -> ghost
+        // Normal pathfinding for other positions
+      }
+    }
+    gs.Outside -> ghost
+    // Normal behavior
+  }
 }
 
 /// Update single ghost AI and movement
@@ -26,10 +122,18 @@ fn update_ghost(
   maze: List(List(gs.Tile)),
   delta_seconds: Float,
   player_power_mode: Bool,
+  dots_remaining: Int,
+  level: Int,
 ) -> gs.Ghost {
+  // Check if ghost should be released from house
+  let ghost_with_release = check_ghost_release(ghost, dots_remaining, level)
+
+  // Apply special house steering if needed
+  let ghost_with_steering = apply_house_steering(ghost_with_release)
+
   // Update mode based on player power mode and timer
   let ghost_with_mode =
-    update_ghost_mode(ghost, delta_seconds, player_power_mode)
+    update_ghost_mode(ghost_with_steering, delta_seconds, player_power_mode)
 
   // Get target position based on ghost personality and mode
   let target_pos = get_target_position(ghost_with_mode, player_pos)
@@ -145,8 +249,52 @@ fn get_target_position(
       vec2.Vec2(0, 0)
     }
     gs.Eaten -> {
-      // Return to ghost house
-      vec2.Vec2(14, 14)
+      // Return to ghost house using waypoint navigation
+      case ghost.house_state {
+        gs.Returning -> get_eaten_ghost_waypoint(ghost.grid_pos)
+        _ -> vec2.Vec2(14, 14)
+      }
+    }
+  }
+}
+
+/// Get waypoint for eaten ghost navigation to avoid getting stuck
+/// Uses strategic waypoints to guide ghost around maze obstacles
+fn get_eaten_ghost_waypoint(pos: vec2.Vec2(Int)) -> vec2.Vec2(Int) {
+  // If in house area (rows 11-15), target house center directly
+  case pos.y >= 11 && pos.y <= 15 && pos.x >= 10 && pos.x <= 17 {
+    True -> vec2.Vec2(14, 14)
+    False -> {
+      // Outside house area - use waypoints to navigate around maze
+      // Step 1: Get to row 11 (door row) if above
+      case pos.y < 11 {
+        True -> {
+          // Move toward center column (14) while going down
+          case pos.x {
+            x if x < 10 -> vec2.Vec2(14, 5)
+            // Left side: use upper-left waypoint
+            x if x > 18 -> vec2.Vec2(14, 5)
+            // Right side: use upper-right waypoint
+            _ -> vec2.Vec2(14, 11)
+            // Near center: target door row directly
+          }
+        }
+        False -> {
+          // Below house - navigate up and toward center
+          case pos.x {
+            x if x < 10 -> vec2.Vec2(6, 23)
+            // Far left: waypoint at left tunnel area
+            x if x > 18 -> vec2.Vec2(22, 23)
+            // Far right: waypoint at right tunnel area
+            x if x < 14 -> vec2.Vec2(14, 23)
+            // Left of center: move right toward 14
+            x if x > 14 -> vec2.Vec2(14, 23)
+            // Right of center: move left toward 14
+            _ -> vec2.Vec2(14, 11)
+            // At x=14: move up to door
+          }
+        }
+      }
     }
   }
 }
@@ -170,10 +318,16 @@ fn choose_direction(
       let next_pos =
         vec2.Vec2(current_pos.x + offset.x, current_pos.y + offset.y)
 
-      // Don't reverse direction unless stuck
+      // Don't reverse direction unless stuck (but Eaten ghosts CAN reverse)
       let is_reverse = dir == gs.opposite_direction(ghost.direction)
+      let can_reverse = case ghost.mode {
+        gs.Eaten -> True
+        // Eaten ghosts can reverse freely
+        _ -> False
+      }
 
-      movement.is_walkable(maze, next_pos) && !is_reverse
+      movement.is_walkable_for_ghost(maze, next_pos, ghost.house_state)
+      && { can_reverse || !is_reverse }
     })
 
   // If no valid directions (stuck), allow reversing
@@ -182,23 +336,32 @@ fn choose_direction(
     dirs -> dirs
   }
 
-  // Choose direction closest to target
-  final_directions
-  |> list.fold(ghost.direction, fn(best_dir, dir) {
-    let offset = gs.direction_to_offset(dir)
-    let next_pos = vec2.Vec2(current_pos.x + offset.x, current_pos.y + offset.y)
-    let dist = manhattan_distance(next_pos, target)
+  // Choose direction closest to target using first valid direction as initial best
+  case final_directions {
+    [] -> ghost.direction
+    [first, ..rest] -> {
+      rest
+      |> list.fold(first, fn(best_dir, dir) {
+        let offset = gs.direction_to_offset(dir)
+        let next_pos =
+          vec2.Vec2(current_pos.x + offset.x, current_pos.y + offset.y)
+        let dist = manhattan_distance(next_pos, target)
 
-    let best_offset = gs.direction_to_offset(best_dir)
-    let best_pos =
-      vec2.Vec2(current_pos.x + best_offset.x, current_pos.y + best_offset.y)
-    let best_dist = manhattan_distance(best_pos, target)
+        let best_offset = gs.direction_to_offset(best_dir)
+        let best_pos =
+          vec2.Vec2(
+            current_pos.x + best_offset.x,
+            current_pos.y + best_offset.y,
+          )
+        let best_dist = manhattan_distance(best_pos, target)
 
-    case dist < best_dist {
-      True -> dir
-      False -> best_dir
+        case dist < best_dist {
+          True -> dir
+          False -> best_dir
+        }
+      })
     }
-  })
+  }
 }
 
 /// Move ghost (similar to player movement but simpler)
@@ -207,8 +370,15 @@ fn move_ghost(
   maze: List(List(gs.Tile)),
   delta_seconds: Float,
 ) -> gs.Ghost {
+  // Eaten ghosts move at 2x speed
+  let effective_speed = case ghost.mode {
+    gs.Eaten -> ghost.speed *. 2.0
+    _ -> ghost.speed
+  }
+
   // Accumulate movement time
-  let new_accumulator = ghost.move_accumulator +. delta_seconds *. ghost.speed
+  let new_accumulator =
+    ghost.move_accumulator +. delta_seconds *. effective_speed
 
   // Move one tile when accumulator >= 1.0
   case new_accumulator >=. 1.0 {
@@ -220,7 +390,9 @@ fn move_ghost(
       // Handle tunnel wrapping
       let wrapped_pos = wrap_position(target_pos)
 
-      case movement.is_walkable(maze, wrapped_pos) {
+      case
+        movement.is_walkable_for_ghost(maze, wrapped_pos, ghost.house_state)
+      {
         True ->
           gs.Ghost(
             ..ghost,
