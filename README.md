@@ -115,6 +115,27 @@ src/
 - **Frightened Duration**: 6 seconds
 - **Mode Cycles**: 7s scatter → 20s chase (repeating 4x, then infinite chase)
 
+## Known Issues & Troubleshooting
+
+### Black Screen with UI Overlay
+
+If you see only the score/lives UI on a black screen but the score is increasing:
+- **The game IS running** (logic works, you're scoring points)
+- **The rendering might not be visible** 
+
+**Possible causes:**
+1. **WebGL not supported/enabled** - Check browser console (F12) for WebGL errors
+2. **Three.js CDN loading issue** - Check Network tab for failed requests to cdn.jsdelivr.net
+3. **Canvas z-index issue** - The Three.js canvas might be behind the UI overlay
+
+**To debug:**
+- Open browser console (F12 → Console tab)
+- Look for errors related to "WebGL", "three", or "tiramisu"
+- Check Network tab for failed CDN requests
+- Try in a different browser (Chrome/Firefox recommended)
+
+**Workaround:** The game logic works (tests pass), this is purely a rendering issue. We're investigating!
+
 ## Deployment
 
 The game auto-deploys to GitHub Pages via GitHub Actions on push to `main`.
