@@ -29,23 +29,16 @@ jobs:
           gleam-version: "1.14.0"
           rebar3-version: "3"
 
-      # lustre_dev_tools recommends using Bun to speed up bundling (Node can also be used)
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
-
       - name: Download Dependencies
         run: gleam deps download
 
       - name: Build Site
-        # This reads [tools.lustre.html] from gleam.toml and generates the dist/ folder
-        run: gleam run -m lustre/dev build
+        run: gleam build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist # Default output directory for lustre/dev build
+          path: ./build/dev/javascript/pacman # Build output directory
 
   deploy:
     environment:
