@@ -2,7 +2,7 @@
 
 A fully functional **classic Pac-Man game** built with [Gleam](https://gleam.run/) and the [Tiramisu game engine](https://hexdocs.pm/tiramisu/).
 
-**🎮 Play Now**: [https://g36maid.github.io/gleam-pacman/](https://g36maid.github.io/gleam-pacman/)
+**🎮 Play Now**: [https://g36maid.github.io/gleam-pacman/pacman/](https://g36maid.github.io/gleam-pacman/pacman/)
 
 ## Features
 
@@ -44,7 +44,9 @@ Tiramisu games require a browser environment with module support. Use a local de
 ```sh
 # Quick start (automatically picks an available server)
 ./dev.sh
-# Then open http://localhost:1234/pacman/
+
+# Then open in browser:
+# http://localhost:1234/pacman/  <-- Don't forget the /pacman/ part!
 
 # Or manually:
 gleam build
